@@ -211,8 +211,8 @@
                         <div class="row text-center g-3 pt-2">
                             <div class="col-4 border-end">
                                 <span class="text-muted small d-block">今日營運成本優化</span>
-                                <h3 class="fw-bold text-primary my-1">NT$ 1,800</h3>
-                                <span class="badge bg-light text-dark border">離峰 DRT 節省</span>
+                                <h3 id="costOptimizationDisplay" class="fw-bold text-secondary my-1">尚未執行指派</h3>
+                                <span class="badge bg-light text-dark border">等待調度決策</span>
                             </div>
                             <div class="col-4 border-end">
                                 <span class="text-muted small d-block">合規可用駕駛</span>
@@ -265,11 +265,11 @@
                             </div>
                             <div class="col-md-3">
                                 <label class="form-label fw-bold small text-primary"><i class="fa-solid fa-user-tie me-1"></i> 第一位駕駛：</label>
-                                <select id="overrideDriver" class="form-select form-select-sm">
+                                <select id="overrideDriver" class="form-select form-select-sm" onchange="updateSecondaryDriverOptions()">
                                     <!-- 動態渲染 -->
                                 </select>
                             </div>
-                            <!-- 新增：第二位駕駛選單（預設隱藏，選擇加開2部車時自動顯示） -->
+                            <!-- 第二位駕駛選單（自動過濾已選的第一位駕駛） -->
                             <div class="col-md-3" id="secondaryDriverContainer" style="display: none;">
                                 <label class="form-label fw-bold small text-success"><i class="fa-solid fa-user-plus me-1"></i> 第二位駕駛 (第2車)：</label>
                                 <select id="overrideSecondaryDriver" class="form-select form-select-sm">
@@ -501,11 +501,9 @@
         // 渲染駕駛清單下拉選單與合規管理 Modal 表格
         function renderDriverUI() {
             const select1 = document.getElementById('overrideDriver');
-            const select2 = document.getElementById('overrideSecondaryDriver');
             
-            if (select1 && select2) {
+            if (select1) {
                 select1.innerHTML = "";
-                select2.innerHTML = "";
                 let compliantCount = 0;
 
                 driversData.forEach((d, idx) => {
@@ -520,24 +518,15 @@
                     opt1.text = optText;
                     if (isOver) opt1.disabled = true;
                     select1.appendChild(opt1);
-
-                    let opt2 = document.createElement('option');
-                    opt2.value = idx;
-                    opt2.text = optText;
-                    if (isOver) opt2.disabled = true;
-                    select2.appendChild(opt2);
                 });
-
-                // 預設讓第二位駕駛選單選取第二位司機（若有）
-                if (driversData.length > 1) {
-                    select2.value = 1;
-                }
 
                 const countBadge = document.getElementById('availableDriverCount');
                 if (countBadge) {
                     countBadge.innerText = compliantCount;
                 }
             }
+
+            updateSecondaryDriverOptions();
 
             // 同步更新管理司機視窗內的表格
             const modalBody = document.getElementById('driverModalTableBody');
@@ -559,12 +548,43 @@
             }
         }
 
+        // 動態更新第二位駕駛選單，確保不會與第一位駕駛重複選擇
+        function updateSecondaryDriverOptions() {
+            const select1 = document.getElementById('overrideDriver');
+            const select2 = document.getElementById('overrideSecondaryDriver');
+            if (!select1 || !select2) return;
+
+            const selectedIdx1 = parseInt(select1.value);
+            const currentVal2 = select2.value;
+
+            select2.innerHTML = "";
+            driversData.forEach((d, idx) => {
+                if (idx === selectedIdx1) return;
+
+                let remaining = (10.0 - d.hours).toFixed(1);
+                let isOver = d.hours > 10.0;
+                let optText = `${d.name} - 當日工時 ${d.hours}h (剩餘合法 ${remaining}h)${isOver ? ' ❌ 已超時' : ''}`;
+
+                let opt = document.createElement('option');
+                opt.value = idx;
+                opt.text = optText;
+                if (isOver) opt.disabled = true;
+                select2.appendChild(opt);
+            });
+
+            if (currentVal2 && currentVal2 !== String(selectedIdx1)) {
+                select2.value = currentVal2;
+            }
+        }
+
         // 切換加開數量時顯示或隱藏第二位駕駛選單
         function toggleSecondaryDriverSelect() {
             const countVal = document.getElementById('overrideCount').value;
             const container = document.getElementById('secondaryDriverContainer');
+
             if (countVal === "2") {
                 container.style.display = "block";
+                updateSecondaryDriverOptions();
             } else {
                 container.style.display = "none";
             }
@@ -673,17 +693,17 @@
             document.getElementById('predictedCountText').innerText = predictedText;
         }
 
-        // 支援人機協作（Human-in-the-Loop Override）與多車多司機動態聯動執行函數
+        // 支援人機協作與點擊後才結算顯示成本的執行函數
         function executeSmartDispatch() {
             const btn = document.getElementById('dispatchBtn');
             const container = document.getElementById('dispatchResultContainer');
             const details = document.getElementById('dispatchDetails');
             const exportBox = document.getElementById('exportPreviewBox');
             const ledText = document.getElementById('ledApiDynamicText');
+            const costDisplay = document.getElementById('costOptimizationDisplay');
             const isFallbackTest = document.getElementById('simulateFallbackSwitch').checked;
 
-            // 讀取調度員手動選擇的參數
-            const countVal = parseInt(document.getElementById('overrideCount').value) || 1;
+            const countVal = parseInt(document.getElementById('overrideCount').value) || 0;
             const primaryVehicle = document.getElementById('overrideVehicle').value;
             const secondaryVehicle = primaryVehicle === "KAB-9921" ? "KAB-8820" : "KAB-9921";
             
@@ -691,10 +711,10 @@
             let driver1 = driversData[idx1];
 
             btn.disabled = true;
-            btn.innerHTML = `<span class="spinner-border spinner-border-sm me-2" role="status" aria-hidden="true"></span> 後端 C# 正在執行勞基法檢核與多車周轉計算...`;
+            btn.innerHTML = `<span class="spinner-border spinner-border-sm me-2" role="status" aria-hidden="true"></span> 後端 C# 正在執行勞基法檢核與成本周轉計算...`;
 
             setTimeout(() => {
-                if (isFallbackTest || driver1.hours + 1.0 > 10.0) {
+                if (countVal > 0 && (isFallbackTest || driver1.hours + 1.0 > 10.0)) {
                     btn.disabled = false;
                     btn.innerHTML = `<i class="fa-solid fa-rocket me-2"></i> 🚀 確認執行指派`;
                     btn.className = "btn btn-custom-danger btn-lg px-4 py-3 text-white fw-bold rounded-3";
@@ -708,13 +728,14 @@
                     return;
                 }
 
-                let assignedVehiclesStr = primaryVehicle;
-                let assignedDriversStr = driver1.name;
+                let assignedVehiclesStr = "無 (維持原班次)";
+                let assignedDriversStr = "無額外指派";
 
-                // 扣除第一位駕駛工時
-                driver1.hours += 1.0;
-
-                if (countVal === 2) {
+                if (countVal === 1) {
+                    driver1.hours += 1.0;
+                    assignedVehiclesStr = primaryVehicle;
+                    assignedDriversStr = driver1.name;
+                } else if (countVal === 2) {
                     const idx2 = parseInt(document.getElementById('overrideSecondaryDriver').value);
                     let driver2 = driversData[idx2];
 
@@ -729,24 +750,39 @@
                         return;
                     }
 
-                    // 扣除第二位駕駛工時
+                    driver1.hours += 1.0;
                     driver2.hours += 1.0;
                     assignedVehiclesStr = `${primaryVehicle}、${secondaryVehicle}`;
                     assignedDriversStr = `${driver1.name}、${driver2.name}`;
                 }
 
-                renderDriverUI(); // 即時更新下拉選單與管理彈窗數據
+                renderDriverUI();
 
-                btn.innerHTML = `<i class="fa-solid fa-check me-2"></i> 加班車已成功指派（工時與車輛已同步）！`;
+                // 只有在按下確認指派後，才根據選取的加開數量結算並顯示成本
+                let newCostText = "NT$ 1,800";
+                costDisplay.className = "fw-bold text-primary my-1";
+                if (countVal === 1) {
+                    newCostText = "NT$ 900 (增開1車成本折抵)";
+                    costDisplay.innerHTML = "NT$ 900";
+                } else if (countVal === 2) {
+                    newCostText = "NT$ 0 (增開2車成本平衡)";
+                    costDisplay.innerHTML = "NT$ 0";
+                } else {
+                    newCostText = "NT$ 1,800 (未加開最大化節省)";
+                    costDisplay.innerHTML = "NT$ 1,800";
+                }
+
+                btn.innerHTML = `<i class="fa-solid fa-check me-2"></i> 決策執行成功（成本與工時已同步更新）！`;
                 btn.className = "btn btn-success btn-lg px-4 py-3 text-white fw-bold rounded-3 shadow";
                 container.style.display = "block";
 
-                let actionDesc = countVal === 2 ? "手動覆核：加開 2 部車 (高人潮保守策略)" : "建議加開 1 部車 (AI 推薦)";
+                let actionDesc = countVal === 2 ? "手動覆核：加開 2 部車 (保守策略)" : (countVal === 1 ? "加開 1 部車 (AI 推薦)" : "不加開 (維持原班次)");
 
                 details.innerHTML = `
                     <p class="mb-1"><strong>調度執行策略：</strong> <span class="badge bg-primary fs-6">${actionDesc}</span></p>
                     <p class="mb-1"><strong>指派調度車輛 (${countVal}部)：</strong> <span class="badge bg-dark fs-6">${assignedVehiclesStr}</span></p>
                     <p class="mb-1"><strong>指派合規駕駛：</strong> <strong>${assignedDriversStr}</strong>（當日累計工時已同步更新）</p>
+                    <p class="mb-1"><strong>即時營運成本更新：</strong> <span class="text-primary fw-bold">${newCostText}</span></p>
                     <p class="mb-1 text-dark small"><i class="fa-solid fa-shield-halved text-success me-1"></i> <b>勞基法合規檢核通過：</b> 所有指派駕駛當日工時嚴格符合 10 小時上限與七休一規範。</p>
                     <div class="p-2.5 bg-white rounded border mt-2">
                         <span class="text-primary small fw-bold"><i class="fa-solid fa-display me-1"></i> 月台 LED 看板 API 串接：</span>
@@ -755,9 +791,13 @@
                     </div>
                 `;
 
-                // 讓 LED 看板 API 動態更新
-                ledText.className = "mb-0 text-success fw-bold small";
-                ledText.innerHTML = `▶ 【即時調度 API 公告】：已成功加開 ${countVal} 部車輛（${assignedVehiclesStr}），指派駕駛：${assignedDriversStr}，請旅客依序引導上車。`;
+                if (countVal > 0) {
+                    ledText.className = "mb-0 text-success fw-bold small";
+                    ledText.innerHTML = `▶ 【即時調度 API 公告】：已成功加開 ${countVal} 部車輛（${assignedVehiclesStr}），指派駕駛：${assignedDriversStr}，請旅客依序引導上車。`;
+                } else {
+                    ledText.className = "mb-0 text-warning fw-bold small";
+                    ledText.innerHTML = `▶ 【即時調度 API 公告】：維持原班次營運，請排隊旅客依現場引導候車。`;
+                }
 
                 exportBox.innerHTML = `
                     <h6 class="fw-bold text-success mb-1 small"><i class="fa-solid fa-circle-check me-1"></i> 已產出正式決策卡 (全資訊同步)：</h6>
@@ -780,9 +820,9 @@
                 targetTimeSlot: "10:40",
                 predictedDemand: 68,
                 vehicleCapacity: 45,
-                dispatchAction: "加開加班車與多車調度",
+                dispatchAction: "動態調度與成本結算",
                 complianceStatus: "勞基法合規檢核通過 (累計工時 10 小時上限內)",
-                estimatedShortageResolved: "容量缺口已解決",
+                estimatedShortageResolved: "容量缺口已結算",
                 esgImpact: "-142 kg CO2e"
             };
 

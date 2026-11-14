@@ -282,6 +282,10 @@
                             <button id="dispatchBtn" class="btn btn-custom-danger btn-lg px-4 py-3 text-white fw-bold rounded-3" onclick="executeSmartDispatch()">
                                 <i class="fa-solid fa-rocket me-2"></i> 🚀 確認執行指派
                             </button>
+                            <!-- 新增：重新指派按鈕（預設隱藏，執行成功後才出現） -->
+                            <button id="resetDispatchBtn" class="btn btn-outline-secondary btn-lg px-4 py-3 fw-bold rounded-3" onclick="resetDispatchState()" style="display: none;">
+                                <i class="fa-solid fa-rotate-left me-2"></i> 🔄 重新指派
+                            </button>
                             <span class="text-muted small"><i class="fa-solid fa-circle-info text-primary me-1"></i> 點擊後將執行 C# 引擎工時驗證、車輛周轉計算並自動更新站牌 LED 看板 API。</span>
                         </div>
 
@@ -693,9 +697,10 @@
             document.getElementById('predictedCountText').innerText = predictedText;
         }
 
-        // 支援人機協作與點擊後才結算顯示成本的執行函數
+        // 執行指派並鎖定控制項，直到點擊「重新指派」
         function executeSmartDispatch() {
             const btn = document.getElementById('dispatchBtn');
+            const resetBtn = document.getElementById('resetDispatchBtn');
             const container = document.getElementById('dispatchResultContainer');
             const details = document.getElementById('dispatchDetails');
             const exportBox = document.getElementById('exportPreviewBox');
@@ -717,7 +722,6 @@
                 if (countVal > 0 && (isFallbackTest || driver1.hours + 1.0 > 10.0)) {
                     btn.disabled = false;
                     btn.innerHTML = `<i class="fa-solid fa-rocket me-2"></i> 🚀 確認執行指派`;
-                    btn.className = "btn btn-custom-danger btn-lg px-4 py-3 text-white fw-bold rounded-3";
                     container.style.display = "block";
                     details.innerHTML = `
                         <p class="mb-1 text-danger fw-bold"><i class="fa-solid fa-triangle-exclamation me-1"></i> ❌ 勞基法防呆鎖定或備援觸發：</p>
@@ -758,7 +762,7 @@
 
                 renderDriverUI();
 
-                // 只有在按下確認指派後，才根據選取的加開數量結算並顯示成本
+                // 結算並顯示成本
                 let newCostText = "NT$ 1,800";
                 costDisplay.className = "fw-bold text-primary my-1";
                 if (countVal === 1) {
@@ -772,8 +776,19 @@
                     costDisplay.innerHTML = "NT$ 1,800";
                 }
 
-                btn.innerHTML = `<i class="fa-solid fa-check me-2"></i> 決策執行成功（成本與工時已同步更新）！`;
+                // 指派成功後：鎖定控制按鈕與下拉選單，並顯示「重新指派」按鈕
+                btn.innerHTML = `<i class="fa-solid fa-check me-2"></i> 已成功指派（已鎖定）`;
                 btn.className = "btn btn-success btn-lg px-4 py-3 text-white fw-bold rounded-3 shadow";
+                btn.disabled = true;
+                resetBtn.style.display = "inline-block"; // 顯示重新指派按鈕
+
+                // 鎖定表單輸入欄位，防止重複修改
+                document.getElementById('overrideCount').disabled = true;
+                document.getElementById('overrideVehicle').disabled = true;
+                document.getElementById('overrideDriver').disabled = true;
+                const secDriver = document.getElementById('overrideSecondaryDriver');
+                if (secDriver) secDriver.disabled = true;
+
                 container.style.display = "block";
 
                 let actionDesc = countVal === 2 ? "手動覆核：加開 2 部車 (保守策略)" : (countVal === 1 ? "加開 1 部車 (AI 推薦)" : "不加開 (維持原班次)");
@@ -803,12 +818,35 @@
                     <h6 class="fw-bold text-success mb-1 small"><i class="fa-solid fa-circle-check me-1"></i> 已產出正式決策卡 (全資訊同步)：</h6>
                     <p class="small text-dark mb-0">路線: 6670 | 加開數量: ${countVal} 部 | 車輛: ${assignedVehiclesStr} | 駕駛: ${assignedDriversStr}。</p>
                 `;
+            }, 1000);
+        }
 
-                setTimeout(() => {
-                    btn.disabled = false;
-                    btn.innerHTML = `<i class="fa-solid fa-rocket me-2"></i> 🚀 確認執行指派`;
-                }, 2000);
-            }, 1200);
+        // 重新指派按鈕：解鎖控制項並恢復初始指派狀態
+        function resetDispatchState() {
+            const btn = document.getElementById('dispatchBtn');
+            const resetBtn = document.getElementById('resetDispatchBtn');
+            const container = document.getElementById('dispatchResultContainer');
+            const costDisplay = document.getElementById('costOptimizationDisplay');
+
+            // 恢復按鈕狀態
+            btn.disabled = false;
+            btn.innerHTML = `<i class="fa-solid fa-rocket me-2"></i> 🚀 確認執行指派`;
+            btn.className = "btn btn-custom-danger btn-lg px-4 py-3 text-white fw-bold rounded-3";
+            resetBtn.style.display = "none"; // 隱藏重新指派按鈕
+
+            // 解鎖表單輸入欄位
+            document.getElementById('overrideCount').disabled = false;
+            document.getElementById('overrideVehicle').disabled = false;
+            document.getElementById('overrideDriver').disabled = false;
+            const secDriver = document.getElementById('overrideSecondaryDriver');
+            if (secDriver) secDriver.disabled = false;
+
+            // 隱藏成功提示框並重設成本顯示
+            container.style.display = "none";
+            costDisplay.className = "fw-bold text-secondary my-1";
+            costDisplay.innerHTML = "尚未執行指派";
+
+            alert("【潭行智策系統提示】已解鎖調度控制台，您現在可以重新調整參數並進行指派。");
         }
 
         // 真實觸發下載決策卡 JSON 檔案的互動函數
